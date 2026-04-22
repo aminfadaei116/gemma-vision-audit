@@ -1,0 +1,25 @@
+# Core
+torch
+torchvision
+transformers
+datasets
+accelerate
+peft
+trl
+
+# Data & images
+pillow
+tqdm
+pandas
+
+# Evaluation
+rouge-score
+bert-score
+
+# LLM-based label conversion (optional — only needed for --mode llm)
+openai
+
+# Notebook
+jupyter
+ipywidgets
+matplotlib
