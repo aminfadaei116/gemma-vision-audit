@@ -4,13 +4,11 @@ import torch
 def get_device() -> str:
     if torch.cuda.is_available():
         return "cuda"
-    elif torch.backends.mps.is_available():
-        return "mps"
     return "cpu"
 
 
 DEVICE = get_device()
-DTYPE  = torch.bfloat16 if DEVICE == "cuda" else torch.float32
+DTYPE  = torch.bfloat16
 
 MODEL_ID     = "google/gemma-4-E2B-it"
 ADAPTER_PATH = "./outputs/gemma4_e2b_artifact_assessor_lora"

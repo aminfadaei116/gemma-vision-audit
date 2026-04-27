@@ -1,6 +1,9 @@
-# Core
+# PyTorch with CUDA 12.1 support (Linux/cloud VM)
+--index-url https://download.pytorch.org/whl/cu121
 torch
 torchvision
+
+# Core
 transformers
 datasets
 accelerate

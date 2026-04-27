@@ -9,12 +9,11 @@ signal in a video diffusion training pipeline and publish a blog post.
 
 ## Hardware
 
-| Environment | Device | dtype | QLoRA |
-|---|---|---|---|
-| Mac (Apple Silicon) | `mps` | `float32` | not supported |
-| A100 40GB | `cuda` | `bfloat16` | not needed (2B model) |
+| Environment | Device | dtype |
+|---|---|---|
+| A100 40GB (Linux/cloud VM) | `cuda` | `bfloat16` |
 
-`scripts/utils.py::get_device()` auto-detects the environment.  The same code runs on both.
+`scripts/utils.py::get_device()` auto-detects the environment.
 
 ---
 
@@ -49,7 +48,7 @@ python scripts/03_train.py                       # LoRA fine-tune → ./outputs/
 python scripts/04_evaluate.py                    # ROUGE-L + BERTScore on val set
 ```
 
-**Debug / pipeline validation (Mac):**
+**Debug / pipeline validation:**
 ```bash
 python scripts/02_convert_to_vqa.py --mode rule
 python scripts/03_train.py --debug    # 100 samples, 1 epoch, fast feedback
@@ -83,8 +82,6 @@ python scripts/02_convert_to_vqa.py --mode llm --model gpt-4o   # higher quality
 | Issue | Fix |
 |---|---|
 | High initial loss (~13–15) | Normal Gemma 4 multimodal SFT behavior — do not stop early |
-| `bfloat16` errors on Mac | Already handled: `DTYPE = float32` when `DEVICE == "mps"` |
-| `bitsandbytes` on Mac | Do not install — no MPS support |
 | `target_modules` PEFT warning | Run `print([n for n, _ in model.named_modules()])` to verify exact layer names |
 | Images as URLs in dataset | Normalize with `Image.open(BytesIO(requests.get(url).content))` before processing |
 | VRAM spike at batch start | Lower `max_length` to 1024 or set `--batch-size 1` |
@@ -95,9 +92,9 @@ python scripts/02_convert_to_vqa.py --mode llm --model gpt-4o   # higher quality
 ## Dependencies
 
 ```bash
-pip install torch torchvision transformers datasets accelerate peft trl
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install transformers datasets accelerate peft trl
 pip install pillow tqdm pandas rouge-score bert-score
 pip install openai          # only needed for --mode llm in script 02
 pip install jupyter ipywidgets matplotlib   # only needed for the notebook
-# Do NOT install bitsandbytes on Mac
 ```

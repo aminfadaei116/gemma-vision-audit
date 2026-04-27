@@ -16,34 +16,13 @@ The LoRA adapter is saved separately and loaded at inference time.
 
 ---
 
-### Mac (Apple Silicon — MPS)
+### Linux / Cloud VM (CUDA)
 
 ```bash
 conda create -n gemma4_finetune python=3.10 -y
 conda activate gemma4_finetune
 
-pip install torch torchvision
-pip install transformers datasets accelerate peft trl
-pip install pillow tqdm pandas rouge-score bert-score
-pip install openai            # only needed for --mode llm in script 02
-pip install jupyter ipywidgets matplotlib   # only needed for the notebook
-```
-
-> Do **not** install `bitsandbytes` on Mac — it has no MPS support and will error on import.
-
----
-
-### A100 / CUDA (Linux, cloud VM)
-
-```bash
-conda create -n gemma4_finetune python=3.10 -y
-conda activate gemma4_finetune
-
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip install transformers datasets accelerate peft trl
-pip install pillow tqdm pandas rouge-score bert-score
-pip install openai
-pip install jupyter ipywidgets matplotlib
+pip install -r requirements.txt
 ```
 
 ---
@@ -87,7 +66,7 @@ python scripts/03_train.py
 python scripts/04_evaluate.py
 ```
 
-**Debug pass (Mac — fast pipeline validation before committing to a full run):**
+**Debug pass (fast validation before committing to a full run):**
 
 ```bash
 python scripts/02_convert_to_vqa.py --mode rule
