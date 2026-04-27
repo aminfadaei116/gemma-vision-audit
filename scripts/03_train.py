@@ -23,14 +23,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 import torch
 from datasets import load_from_disk
 from peft import LoraConfig, TaskType, get_peft_model
-from transformers import (
-    AutoProcessor,
-    Gemma4ForConditionalGeneration,
-    TrainingArguments,
-)
+from transformers import AutoProcessor, TrainingArguments
 from trl import SFTTrainer
 
-from utils import ADAPTER_PATH, DEVICE, DTYPE, MODEL_ID
+from utils import DEVICE, DTYPE, MODEL_ID, get_model_class
 
 
 def build_collate_fn(processor, device: str):
@@ -79,12 +75,16 @@ def build_collate_fn(processor, device: str):
 
 
 def main(args: argparse.Namespace) -> None:
+    # Determine model ID from args or default
+    model_id = args.model if args.model else MODEL_ID
+    model_class = get_model_class(model_id)
+
     # Gemma 4 E2B has ~5B total parameters (~20 GB in float32, ~10 GB in float16).
     # MPS on a 16 GB Mac cannot fit this for training; fall back to CPU.
     train_device = "cpu" if DEVICE == "mps" else DEVICE
     train_dtype  = torch.float16 if DEVICE == "mps" else DTYPE
 
-    print("=== Step 3: Fine-tune Gemma 4 E2B via LoRA ===")
+    print(f"=== Step 3: Fine-tune {model_id} via LoRA ===")
     if DEVICE == "mps":
         print("Warning: MPS detected but model (~5B params) exceeds 16 GB unified memory.")
         print("         Training on CPU with float16 instead (debug pass: ~15 min).\n")
@@ -102,11 +102,11 @@ def main(args: argparse.Namespace) -> None:
     print(f"Train : {len(train_ds):,}  |  Val : {len(val_ds):,}")
 
     # ── Model + processor ────────────────────────────────────────────────────
-    print(f"\nLoading {MODEL_ID}...")
-    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    print(f"\nLoading {model_id}...")
+    processor = AutoProcessor.from_pretrained(model_id)
 
-    model = Gemma4ForConditionalGeneration.from_pretrained(
-        MODEL_ID,
+    model = model_class.from_pretrained(
+        model_id,
         torch_dtype=train_dtype,
         device_map="auto" if train_device == "cuda" else None,
     )
@@ -131,8 +131,10 @@ def main(args: argparse.Namespace) -> None:
     model.print_trainable_parameters()
 
     # ── Training arguments ───────────────────────────────────────────────────
+    # Use model-friendly output directory name
+    output_dir = f"./outputs/{model_id.replace('/', '_')}_artifact_assessor"
     training_args = TrainingArguments(
-        output_dir="./outputs/gemma4_e2b_artifact_assessor",
+        output_dir=output_dir,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps=max(1, 16 // args.batch_size),
@@ -171,14 +173,19 @@ def main(args: argparse.Namespace) -> None:
     trainer.train()
 
     # ── Save adapter ─────────────────────────────────────────────────────────
-    os.makedirs(ADAPTER_PATH, exist_ok=True)
-    model.save_pretrained(ADAPTER_PATH)
-    processor.save_pretrained(ADAPTER_PATH)
-    print(f"\nAdapter saved → {ADAPTER_PATH}")
+    adapter_path = f"./outputs/{model_id.replace('/', '_')}_artifact_assessor_lora"
+    os.makedirs(adapter_path, exist_ok=True)
+    model.save_pretrained(adapter_path)
+    processor.save_pretrained(adapter_path)
+    print(f"\nAdapter saved → {adapter_path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model", type=str, default=None,
+        help="HuggingFace model ID (default: google/gemma-4-E2B-it)",
+    )
     parser.add_argument(
         "--lora-rank", type=int, default=16,
         help="LoRA rank r (8=debug, 16=standard, 32=if underfitting)",

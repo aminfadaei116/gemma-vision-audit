@@ -1,10 +1,28 @@
 import torch
+from transformers import (
+    Gemma4ForConditionalGeneration,
+    PaliGemmaForConditionalGeneration,
+)
 
 
 def get_device() -> str:
     if torch.cuda.is_available():
         return "cuda"
     return "cpu"
+
+
+def get_model_class(model_id: str):
+    """Map HuggingFace model ID to its model class."""
+    model_id_lower = model_id.lower()
+    if "gemma-4" in model_id_lower or "gemma4" in model_id_lower:
+        return Gemma4ForConditionalGeneration
+    elif "gemma-3" in model_id_lower or "gemma3" in model_id_lower:
+        return Gemma4ForConditionalGeneration  # Gemma 3 uses same class
+    elif "paligemma" in model_id_lower:
+        return PaliGemmaForConditionalGeneration
+    else:
+        # Default to Gemma 4
+        return Gemma4ForConditionalGeneration
 
 
 DEVICE = get_device()
