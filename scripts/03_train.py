@@ -6,7 +6,11 @@ Saves : ./outputs/gemma4_e2b_artifact_assessor/          (trainer checkpoints)
         ./outputs/gemma4_e2b_artifact_assessor_lora/     (final LoRA adapter)
 
 Usage:
+    # Single GPU
     python scripts/03_train.py
+
+    # Multi-GPU via DDP (one full model copy per GPU, data-parallel)
+    torchrun --nproc_per_node=4 scripts/03_train.py --multi-gpu
 
 Mac notes:
     - Runs in float32 on MPS automatically.
@@ -79,11 +83,33 @@ def main(args: argparse.Namespace) -> None:
     model_id = args.model if args.model else MODEL_ID
     model_class = get_model_class(model_id)
 
-    train_device = DEVICE
-    train_dtype  = DTYPE  # bfloat16 on cuda, float32 on cpu
+    # Multi-GPU / DDP detection. When launched via `torchrun`, LOCAL_RANK and
+    # WORLD_SIZE are populated and HF Trainer wires up DistributedDataParallel
+    # automatically — we just need to pin each process to its own GPU and skip
+    # `device_map="auto"` (which would otherwise shard one model across GPUs).
+    local_rank = int(os.environ.get("LOCAL_RANK", -1))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_distributed = local_rank != -1 and world_size > 1
+    is_main_process = not is_distributed or local_rank == 0
 
-    print(f"=== Step 3: Fine-tune {model_id} via LoRA ===")
-    print(f"Device : {train_device} | dtype : {train_dtype}\n")
+    if args.multi_gpu and not is_distributed:
+        raise RuntimeError(
+            "--multi-gpu requires launching via torchrun, e.g.:\n"
+            "    torchrun --nproc_per_node=<N> scripts/03_train.py --multi-gpu"
+        )
+
+    if is_distributed:
+        torch.cuda.set_device(local_rank)
+        train_device = f"cuda:{local_rank}"
+    else:
+        train_device = DEVICE
+    train_dtype = DTYPE  # bfloat16 on cuda, float32 on cpu
+
+    if is_main_process:
+        print(f"=== Step 3: Fine-tune {model_id} via LoRA ===")
+        if is_distributed:
+            print(f"Distributed (DDP) : world_size={world_size}")
+        print(f"Device : {train_device} | dtype : {train_dtype}\n")
 
     # ── Datasets ─────────────────────────────────────────────────────────────
     train_ds = load_from_disk("./data/vqa_train")
@@ -92,19 +118,27 @@ def main(args: argparse.Namespace) -> None:
     if args.debug:
         train_ds = train_ds.select(range(min(100, len(train_ds))))
         val_ds   = val_ds.select(range(min(20,  len(val_ds))))
-        print("[debug] Using 100 train / 20 val samples")
+        if is_main_process:
+            print("[debug] Using 100 train / 20 val samples")
 
-    print(f"Train : {len(train_ds):,}  |  Val : {len(val_ds):,}")
+    if is_main_process:
+        print(f"Train : {len(train_ds):,}  |  Val : {len(val_ds):,}")
 
     # ── Model + processor ────────────────────────────────────────────────────
-    print(f"\nLoading {model_id}...")
+    if is_main_process:
+        print(f"\nLoading {model_id}...")
     processor = AutoProcessor.from_pretrained(model_id)
 
-    model = model_class.from_pretrained(
-        model_id,
-        torch_dtype=train_dtype,
-        device_map="auto" if train_device == "cuda" else None,
-    )
+    if is_distributed:
+        # DDP: each rank holds a full model copy on its own GPU.
+        model = model_class.from_pretrained(model_id, torch_dtype=train_dtype)
+        model = model.to(train_device)
+    else:
+        model = model_class.from_pretrained(
+            model_id,
+            torch_dtype=train_dtype,
+            device_map="auto" if train_device == "cuda" else None,
+        )
 
     # ── LoRA ─────────────────────────────────────────────────────────────────
     # Target only the language model's Linear layers. The vision/audio towers
@@ -123,7 +157,8 @@ def main(args: argparse.Namespace) -> None:
         ),
     )
     model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
+    if is_main_process:
+        model.print_trainable_parameters()
 
     # ── Training arguments ───────────────────────────────────────────────────
     # Use model-friendly output directory name
@@ -140,7 +175,7 @@ def main(args: argparse.Namespace) -> None:
         optim="adamw_torch",
         num_train_epochs=1 if args.debug else 3,
         use_cpu=(train_device == "cpu"),
-        bf16=(train_device == "cuda"),
+        bf16=train_device.startswith("cuda"),
         fp16=False,
         save_strategy="epoch",
         eval_strategy="epoch",
@@ -151,10 +186,14 @@ def main(args: argparse.Namespace) -> None:
         report_to="none",
         remove_unused_columns=False,
         dataloader_pin_memory=False,
+        ddp_find_unused_parameters=False if is_distributed else None,
     )
 
     # ── Train ────────────────────────────────────────────────────────────────
-    collate_fn = build_collate_fn(processor, train_device)
+    # In DDP, let the Trainer move batches to the local device — returning CPU
+    # tensors keeps things rank-safe.
+    collate_device = "cpu" if is_distributed else train_device
+    collate_fn = build_collate_fn(processor, collate_device)
 
     trainer = SFTTrainer(
         model=model,
@@ -164,15 +203,17 @@ def main(args: argparse.Namespace) -> None:
         data_collator=collate_fn,
     )
 
-    print("\nStarting training...")
+    if is_main_process:
+        print("\nStarting training...")
     trainer.train()
 
     # ── Save adapter ─────────────────────────────────────────────────────────
     adapter_path = f"./outputs/{model_id.replace('/', '_')}_artifact_assessor_lora"
-    os.makedirs(adapter_path, exist_ok=True)
-    model.save_pretrained(adapter_path)
-    processor.save_pretrained(adapter_path)
-    print(f"\nAdapter saved → {adapter_path}")
+    if is_main_process:
+        os.makedirs(adapter_path, exist_ok=True)
+        model.save_pretrained(adapter_path)
+        processor.save_pretrained(adapter_path)
+        print(f"\nAdapter saved → {adapter_path}")
 
 
 if __name__ == "__main__":
@@ -192,5 +233,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--debug", action="store_true",
         help="100-sample single-epoch run to validate the full pipeline",
+    )
+    parser.add_argument(
+        "--multi-gpu", action="store_true",
+        help="Enable DDP multi-GPU training. Launch via "
+             "`torchrun --nproc_per_node=<N> scripts/03_train.py --multi-gpu`",
     )
     main(parser.parse_args())
