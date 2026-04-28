@@ -79,15 +79,10 @@ def main(args: argparse.Namespace) -> None:
     model_id = args.model if args.model else MODEL_ID
     model_class = get_model_class(model_id)
 
-    # Gemma 4 E2B has ~5B total parameters (~20 GB in float32, ~10 GB in float16).
-    # MPS on a 16 GB Mac cannot fit this for training; fall back to CPU.
-    train_device = "cpu" if DEVICE == "mps" else DEVICE
-    train_dtype  = torch.float16 if DEVICE == "mps" else DTYPE
+    train_device = DEVICE
+    train_dtype  = DTYPE  # bfloat16 on cuda, float32 on cpu
 
     print(f"=== Step 3: Fine-tune {model_id} via LoRA ===")
-    if DEVICE == "mps":
-        print("Warning: MPS detected but model (~5B params) exceeds 16 GB unified memory.")
-        print("         Training on CPU with float16 instead (debug pass: ~15 min).\n")
     print(f"Device : {train_device} | dtype : {train_dtype}\n")
 
     # ── Datasets ─────────────────────────────────────────────────────────────
@@ -155,7 +150,7 @@ def main(args: argparse.Namespace) -> None:
         logging_steps=10 if args.debug else 25,
         report_to="none",
         remove_unused_columns=False,
-        dataloader_pin_memory=(train_device == "cuda"),
+        dataloader_pin_memory=False,
     )
 
     # ── Train ────────────────────────────────────────────────────────────────

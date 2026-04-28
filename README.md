@@ -10,7 +10,7 @@ The LoRA adapter is saved separately and loaded at inference time.
 
 ### Prerequisites
 
-- Python 3.10
+- Python 3.10+
 - [conda](https://docs.conda.io/en/latest/miniconda.html) (recommended) or a plain virtualenv
 - A HuggingFace account with the [Gemma 4 license accepted](https://huggingface.co/google/gemma-4-E2B-it)
 
@@ -69,9 +69,28 @@ python scripts/04_evaluate.py
 **Debug pass (fast validation before committing to a full run):**
 
 ```bash
-python scripts/02_convert_to_vqa.py --mode rule
+python scripts/02_convert_to_vqa.py --mode rule --debug
 python scripts/03_train.py --debug    # 100 samples, 1 epoch
+python scripts/04_evaluate.py --max-samples 100
 ```
+
+---
+
+## Key Flags
+
+| Script | Flag | Default | Description |
+|---|---|---|---|
+| `01` | `--n-artifact` | 15000 | Artifact samples to include |
+| `01` | `--n-clean` | 5000 | Clean samples to include |
+| `02` | `--mode` | `rule` | `rule` (free) or `llm` (requires OpenAI key) |
+| `02` | `--model` | `gpt-4o-mini` | OpenAI model for `--mode llm` |
+| `02` | `--max-samples` | all | Cap samples processed |
+| `03` | `--model` | `google/gemma-4-E2B-it` | HuggingFace model ID |
+| `03` | `--lora-rank` | 16 | LoRA rank (8=debug, 32=if underfitting) |
+| `03` | `--batch-size` | 2 | Per-device batch size |
+| `03` | `--debug` | off | 100 samples, 1 epoch |
+| `04` | `--adapter-path` | auto | Path to LoRA adapter dir |
+| `04` | `--max-samples` | all | Limit eval to N samples |
 
 ---
 
@@ -88,7 +107,13 @@ gemma-vision-audit/
 ├── notebooks/
 │   └── qualitative_analysis.ipynb  base vs fine-tuned side-by-side comparison
 ├── data/                           created at runtime by scripts 01-02
+│   ├── images/                     image cache (downloaded by script 02)
+│   ├── subset_ds/                  stratified subset in HF arrow format
+│   ├── vqa_train/                  training split in VQA format
+│   └── vqa_val/                    validation split in VQA format
 ├── outputs/                        created at runtime by script 03
+│   ├── <model-slug>_artifact_assessor/       trainer checkpoints
+│   └── <model-slug>_artifact_assessor_lora/  final LoRA adapter (~150MB)
 ├── requirements.txt
 └── CLAUDE.md                       full technical reference for this project
 ```

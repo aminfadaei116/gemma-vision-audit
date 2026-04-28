@@ -26,10 +26,10 @@ def get_model_class(model_id: str):
 
 
 DEVICE = get_device()
-DTYPE  = torch.bfloat16
+DTYPE  = torch.bfloat16 if DEVICE == "cuda" else torch.float32
 
 MODEL_ID     = "google/gemma-4-E2B-it"
-ADAPTER_PATH = "./outputs/gemma4_e2b_artifact_assessor_lora"
+ADAPTER_PATH = f"./outputs/{MODEL_ID.replace('/', '_')}_artifact_assessor_lora"
 
 USER_PROMPT = (
     "Describe any visual artifacts or physical defects in this AI-generated image. "

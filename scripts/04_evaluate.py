@@ -37,8 +37,8 @@ def load_model(adapter_path: str):
         device_map="auto" if DEVICE == "cuda" else None,
     )
     model = PeftModel.from_pretrained(base, adapter_path)
-    if DEVICE == "mps":
-        model = model.to("mps")
+    if DEVICE != "cuda":
+        model = model.to(DEVICE)
     model.eval()
     print("Model ready.\n")
     return model, processor
