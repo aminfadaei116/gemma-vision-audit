@@ -35,6 +35,7 @@ def load_model(adapter_path: str):
         MODEL_ID,
         torch_dtype=DTYPE,
         device_map="auto" if DEVICE == "cuda" else None,
+        attn_implementation="sdpa",
     )
     model = PeftModel.from_pretrained(base, adapter_path)
     if DEVICE != "cuda":
@@ -49,20 +50,24 @@ def describe_artifacts(model, processor, image: Image.Image) -> str:
     messages = [{
         "role": "user",
         "content": [
-            {"type": "image", "image": image},
-            {"type": "text",  "text": USER_PROMPT},
+            {"type": "image"},
+            {"type": "text", "text": USER_PROMPT},
         ],
     }]
-    inputs = processor.apply_chat_template(
+    text = processor.apply_chat_template(
         messages,
         add_generation_prompt=True,
+        tokenize=False,
+    )
+    inputs = processor(
+        text=text,
+        images=[[image]],
         return_tensors="pt",
-        tokenize=True,
     ).to(DEVICE)
 
     out_ids = model.generate(
         **inputs,
-        max_new_tokens=512,
+        max_new_tokens=192,
         do_sample=False,
     )
     generated = out_ids[0][inputs["input_ids"].shape[1]:]
@@ -78,8 +83,8 @@ def run_metrics(model, processor, val_ds) -> None:
 
     print(f"Running inference on {len(val_ds):,} validation samples...")
     for sample in val_ds:
-        image = sample["messages"][0]["content"][0]["image"]
-        ref   = sample["messages"][1]["content"]
+        image = sample["image"]
+        ref   = sample["assistant_response"]
         pred  = describe_artifacts(model, processor, image)
 
         refs.append(ref)
