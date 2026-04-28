@@ -10,4 +10,4 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-torchrun --standalone --nproc_per_node=4 scripts/03_train.py --multi-gpu "$@"
+torchrun --standalone --nproc_per_node=4 scripts/03_train.py --batch-size 8 --multi-gpu "$@"
